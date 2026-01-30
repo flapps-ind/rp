@@ -151,6 +151,20 @@ export default function NavigationPage() {
     const fetchRequest = async () => {
       // Check if it's a demo request
       if (params.id?.toString().startsWith("demo-")) {
+        // Try to load from sessionStorage first (contains real data from modal)
+        const storedData = sessionStorage.getItem('emergency_' + params.id)
+        if (storedData) {
+          try {
+            const parsed = JSON.parse(storedData)
+            setRequest(parsed)
+            setLoading(false)
+            return
+          } catch {
+            // Fall through to default demo data
+          }
+        }
+        
+        // Fallback to default demo data
         setRequest({
           id: params.id as string,
           incident_type: "Cardiac Arrest",

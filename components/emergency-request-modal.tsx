@@ -19,10 +19,25 @@ interface EmergencyRequestModalProps {
   request?: EmergencyRequest
   onAccept: () => void
   onReject: () => void
+  driverLocation?: { lat: number; lng: number } | null
 }
 
-export function EmergencyRequestModal({ request, onAccept, onReject }: EmergencyRequestModalProps) {
+// Calculate distance between two coordinates using Haversine formula
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3959 // Earth's radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  return R * c
+}
+
+export function EmergencyRequestModal({ request, onAccept, onReject, driverLocation }: EmergencyRequestModalProps) {
   const [time, setTime] = useState("09:42 AM")
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(driverLocation || null)
 
   useEffect(() => {
     const now = new Date()
@@ -33,7 +48,36 @@ export function EmergencyRequestModal({ request, onAccept, onReject }: Emergency
         hour12: true,
       })
     )
-  }, [])
+    
+    // Get real GPS location for distance calculation
+    if (!driverLocation && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCurrentLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          })
+        },
+        () => {
+          // Fallback if location not available
+          setCurrentLocation(null)
+        },
+        { enableHighAccuracy: true }
+      )
+    }
+  }, [driverLocation])
+  
+  // Calculate distance and ETA
+  const distance = currentLocation && request?.location_coords
+    ? calculateDistance(
+        currentLocation.lat,
+        currentLocation.lng,
+        request.location_coords.lat,
+        request.location_coords.lng
+      )
+    : null
+  
+  const etaMinutes = distance ? Math.ceil(distance / 0.5) : null // Assume ~30 mph average speed
 
   const incidentType = request?.incident_type || "Cardiac Arrest"
   const locationAddress = request?.location_address || "123 Medical Dr."
@@ -72,14 +116,18 @@ export function EmergencyRequestModal({ request, onAccept, onReject }: Emergency
                 <Navigation className="w-4 h-4" />
                 <span className="text-xs tracking-wider">Distance</span>
               </div>
-              <p className="text-3xl font-bold text-white">2.5 miles</p>
+              <p className="text-3xl font-bold text-white">
+                {distance !== null ? `${distance.toFixed(1)} mi` : "Calculating..."}
+              </p>
             </div>
             <div className="bg-[#1a2332] border border-[#2196f3] rounded-lg p-4 text-center">
               <div className="flex items-center justify-center gap-2 text-[#2196f3] mb-2">
                 <Clock className="w-4 h-4" />
                 <span className="text-xs tracking-wider">ETA</span>
               </div>
-              <p className="text-3xl font-bold text-white">4 mins</p>
+              <p className="text-3xl font-bold text-white">
+                {etaMinutes !== null ? `${etaMinutes} min${etaMinutes !== 1 ? 's' : ''}` : "Calculating..."}
+              </p>
             </div>
           </div>
 

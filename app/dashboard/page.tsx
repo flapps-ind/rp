@@ -122,6 +122,15 @@ export default function DashboardPage() {
   const handleAcceptRequest = useCallback(async () => {
     if (!emergencyRequest || !user) return
 
+    // In demo mode, skip database update
+    if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || emergencyRequest.id.startsWith('demo-')) {
+      setEmergencyRequest(null)
+      // Store emergency data in sessionStorage for navigation page
+      sessionStorage.setItem('emergency_' + emergencyRequest.id, JSON.stringify(emergencyRequest))
+      router.push(`/navigation/${emergencyRequest.id}`)
+      return
+    }
+
     const { error } = await supabase
       .from("emergency_requests")
       .update({
@@ -178,6 +187,7 @@ export default function DashboardPage() {
           request={emergencyRequest}
           onAccept={handleAcceptRequest}
           onReject={handleRejectRequest}
+          driverLocation={driver?.current_location}
         />
       )}
     </>
