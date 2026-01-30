@@ -48,7 +48,7 @@ export function DashboardContent({
   const [fuelLevel] = useState(88)
   const [o2Reserve] = useState(95)
   
-  const isUnavailable = driver?.status !== "available"
+  const isUnavailable = driver !== null && driver.status !== "available"
 
   // Shift timer
   useEffect(() => {
