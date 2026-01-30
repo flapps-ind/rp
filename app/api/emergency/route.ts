@@ -1,5 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { createClient as createServerClient } from "@supabase/supabase-js"
+
+// Create a service role client for API routes (bypasses RLS for inserts from consumer app)
+function createServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Missing Supabase configuration")
+  }
+  
+  return createServerClient(supabaseUrl, supabaseServiceKey)
+}
 
 // POST /api/emergency - Receive emergency request from consumer app
 export async function POST(request: NextRequest) {
@@ -24,22 +36,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createClient()
+    const supabase = createServiceClient()
 
-    // Create emergency request in database
-    const emergencyRequest = {
-      incident_type: incidentType || "Medical Emergency",
-      location_address: address || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-      location_coords: { lat, lng },
+    // Create emergency in the emergencies table (matches new schema)
+    const emergency = {
+      lat,
+      lng,
+      patient_name: patientName || null,
       priority: priority?.toLowerCase() || "high",
-      patient_info: patientName ? { name: patientName } : null,
+      incident_type: incidentType || "Medical Emergency",
+      address: address || null,
       status: "pending",
-      created_at: new Date().toISOString(),
     }
 
     const { data, error } = await supabase
-      .from("emergency_requests")
-      .insert(emergencyRequest)
+      .from("emergencies")
+      .insert(emergency)
       .select()
       .single()
 
@@ -54,7 +66,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Emergency request created and broadcasted to available drivers",
-      requestId: data.id,
+      emergencyId: data.id,
       data,
     })
   } catch (error) {
@@ -67,20 +79,16 @@ export async function POST(request: NextRequest) {
 }
 
 // GET /api/emergency - Get pending emergency requests (for polling fallback)
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const supabase = await createClient()
-    const { searchParams } = new URL(request.url)
-    const driverId = searchParams.get("driverId")
+    const supabase = createServiceClient()
 
-    const query = supabase
-      .from("emergency_requests")
+    const { data, error } = await supabase
+      .from("emergencies")
       .select("*")
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(10)
-
-    const { data, error } = await query
 
     if (error) {
       return NextResponse.json(
@@ -90,6 +98,49 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({ requests: data })
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
+
+// PUT /api/emergency - Update emergency status (accept/complete)
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { emergencyId, status, driverId } = body
+
+    if (!emergencyId || !status) {
+      return NextResponse.json(
+        { error: "emergencyId and status are required" },
+        { status: 400 }
+      )
+    }
+
+    const supabase = createServiceClient()
+
+    const updateData: Record<string, unknown> = { status }
+    if (driverId) {
+      updateData.assigned_driver_id = driverId
+    }
+
+    const { data, error } = await supabase
+      .from("emergencies")
+      .update(updateData)
+      .eq("id", emergencyId)
+      .select()
+      .single()
+
+    if (error) {
+      return NextResponse.json(
+        { error: "Failed to update emergency", details: error.message },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     return NextResponse.json(
       { error: "Internal server error" },
