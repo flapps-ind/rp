@@ -189,7 +189,11 @@ export function DashboardContent({
             </div>
 
             <Button
-              onClick={() => onStatusChange(driver?.status === "available" ? "busy" : "available")}
+              onClick={() => {
+                const newStatus = driver?.status === "available" ? "busy" : "available"
+                console.log("[v0] Toggle button clicked, current status:", driver?.status, "new status:", newStatus)
+                onStatusChange(newStatus)
+              }}
               className={`${
                 driver?.status === "available"
                   ? "bg-green-500 hover:bg-green-600"
