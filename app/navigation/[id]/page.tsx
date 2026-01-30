@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
+import { NavigationMap } from "@/components/navigation-map"
+import { useGeolocation, calculateDistance } from "@/hooks/use-geolocation"
 import {
   Navigation,
   User,
@@ -11,13 +13,22 @@ import {
   Settings,
   LogOut,
   CornerUpRight,
+  CornerDownRight,
+  CornerUpLeft,
+  CornerDownLeft,
+  ArrowUp,
+  ArrowRight,
+  ArrowLeft,
+  RotateCcw,
   Heart,
   MapPin,
   GitFork,
-  Plus,
-  Minus,
-  Locate,
   Building2,
+  Phone,
+  Volume2,
+  VolumeX,
+  Loader2,
+  AlertCircle,
 } from "lucide-react"
 
 interface EmergencyRequest {
@@ -30,15 +41,112 @@ interface EmergencyRequest {
   status: string
 }
 
+interface RouteStep {
+  instruction: string
+  distance: number
+  duration: number
+  maneuver: {
+    type: string
+    modifier?: string
+    bearing_after?: number
+  }
+}
+
+interface RouteData {
+  distance: number
+  duration: number
+  steps: RouteStep[]
+  geometry: [number, number][]
+}
+
+// Get maneuver icon based on type and modifier
+function getManeuverIcon(type: string, modifier?: string) {
+  const iconClass = "w-8 h-8 text-white"
+  
+  switch (type) {
+    case "turn":
+      if (modifier?.includes("right")) return <CornerUpRight className={iconClass} />
+      if (modifier?.includes("left")) return <CornerUpLeft className={iconClass} />
+      return <ArrowUp className={iconClass} />
+    case "merge":
+    case "on ramp":
+    case "off ramp":
+      if (modifier?.includes("right")) return <CornerDownRight className={iconClass} />
+      if (modifier?.includes("left")) return <CornerDownLeft className={iconClass} />
+      return <ArrowUp className={iconClass} />
+    case "fork":
+      if (modifier?.includes("right")) return <ArrowRight className={iconClass} />
+      if (modifier?.includes("left")) return <ArrowLeft className={iconClass} />
+      return <GitFork className={iconClass} />
+    case "roundabout":
+    case "rotary":
+      return <RotateCcw className={iconClass} />
+    case "arrive":
+      return <MapPin className={iconClass} />
+    case "depart":
+    default:
+      return <ArrowUp className={iconClass} />
+  }
+}
+
+// Format distance for display
+function formatDistance(meters: number): string {
+  const miles = meters * 0.000621371
+  if (miles < 0.1) {
+    const feet = Math.round(meters * 3.28084)
+    return `${feet} ft`
+  }
+  return `${miles.toFixed(1)} mi`
+}
+
+// Format duration for display
+function formatDuration(seconds: number): string {
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) {
+    return `${minutes} min`
+  }
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m`
+}
+
 export default function NavigationPage() {
   const [request, setRequest] = useState<EmergencyRequest | null>(null)
   const [loading, setLoading] = useState(true)
-  const [eta, setEta] = useState(4)
-  const [distance, setDistance] = useState(1.2)
+  const [route, setRoute] = useState<RouteData | null>(null)
+  const [currentStep, setCurrentStep] = useState<RouteStep | null>(null)
+  const [currentStepIndex, setCurrentStepIndex] = useState(0)
+  const [voiceEnabled, setVoiceEnabled] = useState(true)
+  const [speed, setSpeed] = useState(0)
+  
   const router = useRouter()
   const params = useParams()
   const supabase = createClient()
+  
+  // Real GPS location
+  const { 
+    position, 
+    error: geoError, 
+    loading: geoLoading,
+    supported: geoSupported,
+    permissionStatus,
+    requestPermission,
+  } = useGeolocation({
+    enableHighAccuracy: true,
+    maximumAge: 0,
+    timeout: 10000,
+    watchPosition: true,
+  })
 
+  // Calculate speed from GPS or use provided speed
+  useEffect(() => {
+    if (position?.speed !== null && position?.speed !== undefined) {
+      // Convert m/s to mph
+      setSpeed(Math.round(position.speed * 2.237))
+    }
+  }, [position])
+
+  // Fetch emergency request
   useEffect(() => {
     const fetchRequest = async () => {
       // Check if it's a demo request
@@ -71,14 +179,40 @@ export default function NavigationPage() {
     fetchRequest()
   }, [params.id, supabase])
 
-  // Simulate ETA countdown
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setEta((prev) => Math.max(0, prev - 0.02))
-      setDistance((prev) => Math.max(0, prev - 0.005))
-    }, 1000)
-    return () => clearInterval(interval)
+  // Handle route updates
+  const handleRouteUpdate = useCallback((newRoute: RouteData | null) => {
+    setRoute(newRoute)
   }, [])
+
+  // Handle current step change
+  const handleCurrentStepChange = useCallback((step: RouteStep | null, index: number) => {
+    if (step && voiceEnabled && step.instruction !== currentStep?.instruction) {
+      // Use Web Speech API for voice navigation
+      if ("speechSynthesis" in window) {
+        const utterance = new SpeechSynthesisUtterance(step.instruction)
+        utterance.rate = 1.0
+        utterance.pitch = 1.0
+        speechSynthesis.speak(utterance)
+      }
+    }
+    setCurrentStep(step)
+    setCurrentStepIndex(index)
+  }, [voiceEnabled, currentStep])
+
+  // Open native navigation app
+  const handleOpenExternalNav = () => {
+    if (!request) return
+    
+    const { lat, lng } = request.location_coords
+    
+    // Try Google Maps first, then Apple Maps
+    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`
+    const appleMapsUrl = `maps://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`
+    
+    // On iOS, try Apple Maps
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    window.open(isIOS ? appleMapsUrl : googleMapsUrl, "_blank")
+  }
 
   const handleArrive = async () => {
     if (request && !request.id.startsWith("demo-")) {
@@ -95,10 +229,60 @@ export default function NavigationPage() {
     router.push("/auth/login")
   }
 
+  // Calculate distance to emergency
+  const distanceToEmergency = position && request
+    ? calculateDistance(
+        position.lat,
+        position.lng,
+        request.location_coords.lat,
+        request.location_coords.lng
+      )
+    : null
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-[#2196f3] border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  // GPS Permission handling
+  if (!geoSupported) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Geolocation Not Supported</h2>
+          <p className="text-gray-400 mb-4">
+            Your browser does not support geolocation. Please use a modern browser with GPS support.
+          </p>
+          <Button onClick={() => router.push("/dashboard")} variant="outline">
+            Return to Dashboard
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (geoError && permissionStatus === "denied") {
+    return (
+      <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Location Permission Required</h2>
+          <p className="text-gray-400 mb-4">
+            {geoError.message}
+          </p>
+          <div className="flex gap-4 justify-center">
+            <Button onClick={() => requestPermission()} className="bg-[#2196f3] hover:bg-[#1976d2]">
+              Request Permission
+            </Button>
+            <Button onClick={() => router.push("/dashboard")} variant="outline">
+              Return to Dashboard
+            </Button>
+          </div>
+        </div>
       </div>
     )
   }
@@ -144,6 +328,17 @@ export default function NavigationPage() {
           ))}
         </nav>
 
+        {/* External Navigation */}
+        <div className="p-4 border-t border-[#1e3a5f]">
+          <Button 
+            onClick={handleOpenExternalNav}
+            className="w-full h-12 bg-green-500/20 border border-green-500 text-green-500 hover:bg-green-500 hover:text-white"
+          >
+            <Navigation className="w-4 h-4 mr-2" />
+            Open in Maps
+          </Button>
+        </div>
+
         {/* Emergency Button */}
         <div className="p-4">
           <Button className="w-full h-12 bg-red-500/20 border border-red-500 text-red-500 hover:bg-red-500 hover:text-white">
@@ -170,57 +365,66 @@ export default function NavigationPage() {
         {/* Turn-by-Turn Direction */}
         <div className="absolute top-4 left-4 right-80 z-10">
           <div className="bg-[#2196f3] rounded-xl p-4 flex items-center gap-4">
-            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <CornerUpRight className="w-6 h-6 text-white" />
+            <div className="w-14 h-14 bg-white/20 rounded-lg flex items-center justify-center">
+              {currentStep ? (
+                getManeuverIcon(currentStep.maneuver.type, currentStep.maneuver.modifier)
+              ) : (
+                <ArrowUp className="w-8 h-8 text-white" />
+              )}
             </div>
-            <div className="flex-1">
-              <h2 className="text-xl font-bold text-white">Turn Right onto Memorial Drive</h2>
-              <p className="text-white/80">In 500 ft • High Traffic Area</p>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold text-white truncate">
+                {currentStep?.instruction || "Calculating route..."}
+              </h2>
+              <p className="text-white/80">
+                {currentStep 
+                  ? `In ${formatDistance(currentStep.distance)} • Step ${currentStepIndex + 1} of ${route?.steps.length || 0}`
+                  : geoLoading ? "Acquiring GPS signal..." : "Waiting for location..."
+                }
+              </p>
             </div>
             <div className="text-right bg-white/20 rounded-lg px-4 py-2">
               <p className="text-xs text-white/80">SPEED</p>
-              <p className="text-2xl font-bold text-white">42</p>
+              <p className="text-2xl font-bold text-white">{speed}</p>
               <p className="text-xs text-white/80">mph</p>
             </div>
           </div>
         </div>
 
-        {/* Map Placeholder */}
-        <div className="absolute inset-0 bg-[#1a2332]">
-          <iframe
-            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d47234.75761474!2d-71.1103!3d42.3601!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x89e3652d0d3d311b%3A0x787cbf240162e8a0!2sBoston%2C%20MA!5e0!3m2!1sen!2sus!4v1700000000000!5m2!1sen!2sus"
-            className="w-full h-full border-0"
-            allowFullScreen
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            title="Navigation Map"
-          />
+        {/* Voice Toggle */}
+        <div className="absolute top-24 right-84 z-10">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setVoiceEnabled(!voiceEnabled)}
+            className={`bg-[#111827] border-[#1e3a5f] text-white hover:bg-[#1e293b] ${
+              voiceEnabled ? "" : "opacity-50"
+            }`}
+          >
+            {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </Button>
         </div>
 
-        {/* Map Controls */}
-        <div className="absolute bottom-32 left-4 flex flex-col gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="bg-[#111827] border-[#1e3a5f] text-white hover:bg-[#1e293b]"
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="bg-[#111827] border-[#1e3a5f] text-white hover:bg-[#1e293b]"
-          >
-            <Minus className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="bg-[#2196f3] border-[#2196f3] text-white hover:bg-[#1976d2]"
-          >
-            <Locate className="w-4 h-4" />
-          </Button>
-        </div>
+        {/* Interactive Map */}
+        {request && (
+          <NavigationMap
+            driverPosition={position ? { lat: position.lat, lng: position.lng } : null}
+            emergencyPosition={request.location_coords}
+            onRouteUpdate={handleRouteUpdate}
+            onCurrentStepChange={handleCurrentStepChange}
+          />
+        )}
+
+        {/* Loading overlay while getting GPS */}
+        {geoLoading && !position && (
+          <div className="absolute inset-0 bg-[#0a0f1a]/80 flex items-center justify-center z-20">
+            <div className="text-center">
+              <Loader2 className="w-12 h-12 text-[#2196f3] animate-spin mx-auto mb-4" />
+              <p className="text-white font-medium">Acquiring GPS Signal...</p>
+              <p className="text-gray-400 text-sm mt-1">Please ensure location services are enabled</p>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Right Panel */}
@@ -237,17 +441,41 @@ export default function NavigationPage() {
             <div className="bg-[#111827] border border-[#1e3a5f] rounded-lg p-4">
               <p className="text-xs text-gray-400 mb-1">ETA</p>
               <p className="text-2xl font-bold text-white">
-                {Math.ceil(eta)} <span className="text-sm font-normal text-gray-400">mins</span>
+                {route ? formatDuration(route.duration) : "--"}
               </p>
-              <p className="text-xs text-green-500 mt-1">~ -1 min</p>
+              <p className="text-xs text-green-500 mt-1">
+                {route ? "Live updating" : "Calculating..."}
+              </p>
             </div>
             <div className="bg-[#111827] border border-[#1e3a5f] rounded-lg p-4">
               <p className="text-xs text-gray-400 mb-1">Distance</p>
               <p className="text-2xl font-bold text-white">
-                {distance.toFixed(1)} <span className="text-sm font-normal text-gray-400">mi</span>
+                {route ? formatDistance(route.distance) : distanceToEmergency ? `${distanceToEmergency.toFixed(1)} mi` : "--"}
               </p>
-              <p className="text-xs text-[#2196f3] mt-1">Optimal Route</p>
+              <p className="text-xs text-[#2196f3] mt-1">
+                {route ? "Optimal Route" : "Direct line"}
+              </p>
             </div>
+          </div>
+        </div>
+
+        {/* GPS Status */}
+        <div className="p-4 border-b border-[#1e3a5f]">
+          <div className="bg-[#111827] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-gray-400">GPS STATUS</span>
+              <span className={`px-2 py-0.5 text-white text-xs rounded ${
+                position ? "bg-green-500" : geoError ? "bg-red-500" : "bg-yellow-500"
+              }`}>
+                {position ? "LOCKED" : geoError ? "ERROR" : "ACQUIRING"}
+              </span>
+            </div>
+            {position && (
+              <div className="text-xs text-gray-400">
+                <p>Accuracy: {Math.round(position.accuracy)}m</p>
+                <p>Heading: {position.heading ? `${Math.round(position.heading)}°` : "N/A"}</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -255,7 +483,7 @@ export default function NavigationPage() {
         <div className="p-4 border-b border-[#1e3a5f]">
           <div className="bg-[#111827] rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-gray-400">LIVE</span>
+              <span className="text-xs text-gray-400">PATIENT VITALS</span>
               <span className="px-2 py-0.5 bg-red-500 text-white text-xs rounded">LIVE</span>
             </div>
             {/* EKG Line */}
@@ -277,19 +505,20 @@ export default function NavigationPage() {
         <div className="p-4 border-b border-[#1e3a5f]">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-[#2196f3] tracking-wider">PRIORITY STATUS</p>
-            <Heart className="w-5 h-5 text-red-500" />
+            <Heart className="w-5 h-5 text-red-500 animate-pulse" />
           </div>
-          <p className="text-lg font-bold text-white mb-3">Patient: Male, 45y</p>
+          <p className="text-lg font-bold text-white mb-3">
+            Patient: {request?.patient_info?.gender || "Unknown"}, {request?.patient_info?.age || "--"}y
+          </p>
           
           <div className="space-y-2 text-sm">
             <div className="flex items-center gap-2 text-gray-400">
               <Heart className="w-4 h-4" />
-              <span>{request?.incident_type || "Cardiac Arrest"} (Stable)</span>
+              <span>{request?.incident_type || "Medical Emergency"}</span>
             </div>
-            <p className="text-xs text-gray-500 ml-6">Live pulse monitoring active</p>
             <div className="flex items-center gap-2 text-gray-400">
               <MapPin className="w-4 h-4" />
-              <span>{request?.location_address || "155 Memorial Dr, Suite 4"}</span>
+              <span className="truncate">{request?.location_address || "Loading..."}</span>
             </div>
           </div>
         </div>
@@ -301,8 +530,8 @@ export default function NavigationPage() {
               variant="outline"
               className="h-16 flex-col gap-1 bg-transparent border-[#1e3a5f] text-white hover:bg-[#1e293b]"
             >
-              <AlertTriangle className="w-5 h-5" />
-              <span className="text-xs">TRAFFIC</span>
+              <Phone className="w-5 h-5" />
+              <span className="text-xs">DISPATCH</span>
             </Button>
             <Button
               variant="outline"
