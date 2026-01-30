@@ -101,15 +101,10 @@ export default function DashboardPage() {
   }, [router, supabase, driver?.status])
 
   const handleStatusChange = async (status: "available" | "busy" | "offline") => {
-    console.log("[v0] handleStatusChange called with status:", status, "user:", user?.id)
-    if (!user) {
-      console.log("[v0] No user, returning early")
-      return
-    }
+    if (!user) return
 
     // In demo mode, just update local state
     if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
-      console.log("[v0] Demo mode - updating local state only")
       setDriver((prev) => (prev ? { ...prev, status } : null))
       return
     }
@@ -119,7 +114,6 @@ export default function DashboardPage() {
       .update({ status })
       .eq("id", user.id)
 
-    console.log("[v0] Supabase update result, error:", error)
     if (!error) {
       setDriver((prev) => (prev ? { ...prev, status } : null))
     }

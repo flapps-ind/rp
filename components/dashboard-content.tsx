@@ -47,6 +47,8 @@ export function DashboardContent({
   const [shiftTime, setShiftTime] = useState("04:22:15")
   const [fuelLevel] = useState(88)
   const [o2Reserve] = useState(95)
+  
+  const isUnavailable = driver?.status !== "available"
 
   // Shift timer
   useEffect(() => {
@@ -71,7 +73,43 @@ export function DashboardContent({
   ]
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a] flex">
+    <div className="min-h-screen bg-[#0a0f1a] flex relative">
+      {/* Unavailable Overlay */}
+      {isUnavailable && (
+        <div className="absolute inset-0 z-40 bg-[#0a0f1a]/90 flex flex-col items-center justify-center">
+          <div className="text-center mb-8">
+            <div className="w-24 h-24 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <div className="w-16 h-16 bg-red-500/30 rounded-full flex items-center justify-center">
+                <span className="w-4 h-4 bg-red-500 rounded-full" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2">You are Unavailable</h2>
+            <p className="text-gray-400 max-w-md">
+              Your status is set to unavailable. You will not receive any emergency dispatches until you set yourself as available.
+            </p>
+          </div>
+          
+          <div className="flex flex-col gap-4">
+            <Button
+              onClick={() => onStatusChange("available")}
+              className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 text-lg"
+            >
+              <span className="w-3 h-3 bg-white rounded-full mr-3" />
+              Set as Available
+            </Button>
+            
+            <Button
+              variant="outline"
+              onClick={onLogout}
+              className="border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white px-8 py-3"
+            >
+              <LogOut className="w-5 h-5 mr-2" />
+              Logout
+            </Button>
+          </div>
+        </div>
+      )}
+      
       {/* Sidebar */}
       <aside className="w-60 bg-[#0d1421] border-r border-[#1e3a5f] flex flex-col">
         {/* Logo & Unit Info */}
@@ -190,18 +228,17 @@ export function DashboardContent({
 
             <Button
               onClick={() => {
-                const newStatus = driver?.status === "available" ? "busy" : "available"
-                console.log("[v0] Toggle button clicked, current status:", driver?.status, "new status:", newStatus)
+                const newStatus = isUnavailable ? "available" : "busy"
                 onStatusChange(newStatus)
               }}
               className={`${
-                driver?.status === "available"
-                  ? "bg-green-500 hover:bg-green-600"
-                  : "bg-red-500 hover:bg-red-600"
+                isUnavailable
+                  ? "bg-red-500 hover:bg-red-600"
+                  : "bg-green-500 hover:bg-green-600"
               } text-white`}
             >
               <span className="w-2 h-2 bg-white rounded-full mr-2" />
-              {driver?.status === "available" ? "AVAILABLE" : "UNAVAILABLE"}
+              {isUnavailable ? "UNAVAILABLE" : "AVAILABLE"}
             </Button>
 
             <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
