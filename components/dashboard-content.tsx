@@ -180,7 +180,6 @@ export function DashboardContent({
             <Link href="/history" className="text-gray-400 hover:text-white">
               Shift Log
             </Link>
-            <span className="text-gray-400">Reports</span>
           </nav>
 
           <div className="flex items-center gap-4">
@@ -194,11 +193,11 @@ export function DashboardContent({
               className={`${
                 driver?.status === "available"
                   ? "bg-green-500 hover:bg-green-600"
-                  : "bg-gray-600 hover:bg-gray-700"
+                  : "bg-red-500 hover:bg-red-600"
               } text-white`}
             >
               <span className="w-2 h-2 bg-white rounded-full mr-2" />
-              {driver?.status === "available" ? "AVAILABLE" : "BUSY"}
+              {driver?.status === "available" ? "AVAILABLE" : "UNAVAILABLE"}
             </Button>
 
             <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">

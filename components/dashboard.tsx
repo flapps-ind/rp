@@ -167,12 +167,11 @@ export function Dashboard({ onEmergencyRequest, onNavigateToHistory }: Dashboard
         <header className="h-16 border-b border-border flex items-center justify-between px-6">
           <nav className="flex items-center gap-8">
             <button className="text-foreground font-medium border-b-2 border-primary pb-1">Dashboard</button>
-            <button className="text-muted-foreground hover:text-foreground transition-colors">Shift Log</button>
             <button
               onClick={onNavigateToHistory}
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
-              Reports
+              Shift Log
             </button>
           </nav>
           <div className="flex items-center gap-6">

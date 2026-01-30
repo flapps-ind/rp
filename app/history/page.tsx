@@ -160,9 +160,7 @@ export default function HistoryPage() {
               <Link href="/dashboard" className="text-gray-400 hover:text-white">
                 Dashboard
               </Link>
-              <span className="text-[#2196f3]">History</span>
-              <span className="text-gray-400">Alerts</span>
-              <span className="text-gray-400">Profile</span>
+              <span className="text-[#2196f3]">Shift Log</span>
             </nav>
           </div>
 
